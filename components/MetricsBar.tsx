@@ -8,7 +8,7 @@ import { Phone, PieChart, TrendingUp, Coins, Hash } from "lucide-react";
 interface Props {
     rows: string[];
     results: ClassificationResult[];
-    model: FilteredModel | null;
+    models: FilteredModel[];
 }
 
 interface MetricCard {
@@ -18,25 +18,39 @@ interface MetricCard {
     icon: React.ReactNode;
 }
 
-export default function MetricsBar({ rows, results, model }: Props) {
+export default function MetricsBar({ rows, results, models }: Props) {
     const totalCalls = rows.length;
 
     // Outcome distribution
     const distribution: Record<string, number> = {};
+    let totalConf = 0;
+    let confCount = 0;
+
     for (const r of results) {
-        distribution[r.outcome] = (distribution[r.outcome] || 0) + 1;
+        for (const m of Object.values(r.models)) {
+            distribution[m.outcome] = (distribution[m.outcome] || 0) + 1;
+            totalConf += m.confidence;
+            confCount++;
+        }
     }
     const topOutcome =
         Object.entries(distribution).sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
 
     // Avg confidence
-    const avgConf =
-        results.length > 0
-            ? Math.round(results.reduce((s, r) => s + r.confidence, 0) / results.length)
-            : 0;
+    const avgConf = confCount > 0 ? Math.round(totalConf / confCount) : 0;
 
     // Cost estimate
-    const costEst = estimateTotalCost(rows, model);
+    const costEst = models.reduce(
+        (acc, m) => {
+            const est = estimateTotalCost(rows, m);
+            return {
+                totalInputTokens: acc.totalInputTokens + est.totalInputTokens,
+                totalOutputTokens: acc.totalOutputTokens + est.totalOutputTokens,
+                totalCostUSD: acc.totalCostUSD + est.totalCostUSD,
+            };
+        },
+        { totalInputTokens: 0, totalOutputTokens: 0, totalCostUSD: 0 }
+    );
 
     const cards: MetricCard[] = [
         {
