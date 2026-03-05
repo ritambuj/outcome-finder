@@ -20,7 +20,7 @@ export default function Home() {
   const [models, setModels] = useState<FilteredModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [modelsError, setModelsError] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<FilteredModel | null>(null);
+  const [selectedModels, setSelectedModels] = useState<FilteredModel[]>([]);
 
   // CSV
   const [csvRows, setCsvRows] = useState<CsvRow[]>([]);
@@ -49,7 +49,7 @@ export default function Home() {
         setModels(data.models || []);
         // Pre-select a good default (first model)
         if (data.models?.length > 0) {
-          setSelectedModel(data.models[0]);
+          setSelectedModels([data.models[0]]);
         }
       } catch (e: unknown) {
         setModelsError(e instanceof Error ? e.message : "Failed to load models");
@@ -67,8 +67,8 @@ export default function Home() {
   }, []);
 
   const handleAutoGenerate = useCallback(async () => {
-    if (!selectedModel) {
-      setGenerateError("Please select a model first");
+    if (selectedModels.length === 0) {
+      setGenerateError("Please select at least one model first");
       return;
     }
     setGenerating(true);
@@ -78,7 +78,7 @@ export default function Home() {
       const res = await fetch("/api/generate-outcomes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcripts, model: selectedModel.id }),
+        body: JSON.stringify({ transcripts, model: selectedModels[0].id }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -88,10 +88,10 @@ export default function Home() {
     } finally {
       setGenerating(false);
     }
-  }, [csvRows, selectedModel]);
+  }, [csvRows, selectedModels]);
 
   const handleRun = useCallback(async () => {
-    if (!selectedModel || csvRows.length === 0 || outcomes.length === 0) return;
+    if (selectedModels.length === 0 || csvRows.length === 0 || outcomes.length === 0) return;
 
     setRunning(true);
     setRunError(null);
@@ -103,29 +103,35 @@ export default function Home() {
 
     for (let i = 0; i < csvRows.length; i++) {
       const transcript = csvRows[i].call_transcript;
-      try {
-        const res = await fetch("/api/classify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ transcript, outcomes, model: selectedModel.id }),
-        });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-        newResults.push({ transcript, outcome: data.outcome, confidence: data.confidence });
-      } catch (e: unknown) {
-        newResults.push({
-          transcript,
-          outcome: "Error",
-          confidence: 0,
-          error: e instanceof Error ? e.message : "Failed",
-        });
-      }
+      const rowResult: ClassificationResult = { transcript, models: {} };
+
+      await Promise.all(
+        selectedModels.map(async (model) => {
+          try {
+            const res = await fetch("/api/classify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ transcript, outcomes, model: model.id }),
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            rowResult.models[model.id] = { outcome: data.outcome, confidence: data.confidence };
+          } catch (e: unknown) {
+            rowResult.models[model.id] = {
+              outcome: "Error",
+              confidence: 0,
+              error: e instanceof Error ? e.message : "Failed",
+            };
+          }
+        })
+      );
+      newResults.push(rowResult);
       setResults([...newResults]);
       setProgress(i + 1);
     }
 
     setRunning(false);
-  }, [csvRows, outcomes, selectedModel]);
+  }, [csvRows, outcomes, selectedModels]);
 
   const handleReset = () => {
     setCsvRows([]);
@@ -139,7 +145,7 @@ export default function Home() {
   };
 
   const canConfigure = csvRows.length > 0;
-  const canRun = csvRows.length > 0 && outcomes.length > 0 && !!selectedModel && !running;
+  const canRun = csvRows.length > 0 && outcomes.length > 0 && selectedModels.length > 0 && !running;
 
   return (
     <div className="min-h-screen bg-[#f9f9f8]">
@@ -180,10 +186,10 @@ export default function Home() {
               {i > 0 && <ChevronRight className="w-3 h-3 text-neutral-300" />}
               <span
                 className={`font-medium capitalize px-2 py-1 rounded-md transition-colors ${step === s
-                    ? "bg-neutral-900 text-white"
-                    : i < ["upload", "configure", "results"].indexOf(step)
-                      ? "text-neutral-500"
-                      : "text-neutral-300"
+                  ? "bg-neutral-900 text-white"
+                  : i < ["upload", "configure", "results"].indexOf(step)
+                    ? "text-neutral-500"
+                    : "text-neutral-300"
                   }`}
               >
                 {i + 1}. {s}
@@ -236,24 +242,30 @@ export default function Home() {
               <div>
                 <ModelSelector
                   models={models}
-                  selected={selectedModel}
-                  onSelect={setSelectedModel}
+                  selected={selectedModels}
+                  onToggle={(model) => {
+                    setSelectedModels((prev) =>
+                      prev.some((m) => m.id === model.id)
+                        ? prev.filter((m) => m.id !== model.id)
+                        : [...prev, model]
+                    );
+                  }}
                   loading={modelsLoading}
                   error={modelsError}
                 />
               </div>
-              <div className="text-xs text-neutral-500 pt-6">
-                {selectedModel && (
-                  <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200 space-y-1">
-                    <p className="font-medium text-neutral-700">{selectedModel.name}</p>
-                    <p className="capitalize text-neutral-400">{selectedModel.provider}</p>
-                    {selectedModel.contextLength && (
+              <div className="text-xs text-neutral-500 pt-6 space-y-2 max-h-48 overflow-y-auto">
+                {selectedModels.map((m) => (
+                  <div key={m.id} className="p-3 bg-neutral-50 rounded-xl border border-neutral-200 space-y-1">
+                    <p className="font-medium text-neutral-700">{m.name}</p>
+                    <p className="capitalize text-neutral-400">{m.provider}</p>
+                    {m.contextLength && (
                       <p className="text-neutral-400">
-                        {(selectedModel.contextLength / 1000).toFixed(0)}K context
+                        {(m.contextLength / 1000).toFixed(0)}K context
                       </p>
                     )}
                   </div>
-                )}
+                ))}
               </div>
             </div>
 
@@ -307,7 +319,7 @@ export default function Home() {
             <MetricsBar
               rows={csvRows.map((r) => r.call_transcript)}
               results={results}
-              model={selectedModel}
+              models={selectedModels}
             />
 
             {/* Progress */}
@@ -326,7 +338,7 @@ export default function Home() {
                     {results.length} / {csvRows.length} classified
                   </span>
                 </div>
-                <ResultsTable results={results} />
+                <ResultsTable results={results} csvRows={csvRows} selectedModels={selectedModels} />
               </div>
             )}
 

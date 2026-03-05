@@ -6,13 +6,13 @@ import { ChevronDown, Cpu, AlertCircle } from "lucide-react";
 
 interface Props {
     models: FilteredModel[];
-    selected: FilteredModel | null;
-    onSelect: (model: FilteredModel) => void;
+    selected: FilteredModel[];
+    onToggle: (model: FilteredModel) => void;
     loading: boolean;
     error: string | null;
 }
 
-export default function ModelSelector({ models, selected, onSelect, loading, error }: Props) {
+export default function ModelSelector({ models, selected, onToggle, loading, error }: Props) {
     const [open, setOpen] = useState(false);
     const [search, setSearch] = useState("");
 
@@ -45,10 +45,12 @@ export default function ModelSelector({ models, selected, onSelect, loading, err
                     <Cpu className="w-4 h-4 text-neutral-400 shrink-0" />
                     {loading ? (
                         <span className="text-neutral-400 animate-pulse">Loading models…</span>
-                    ) : selected ? (
-                        <span className="truncate font-medium">{selected.name}</span>
+                    ) : selected.length > 0 ? (
+                        <span className="truncate font-medium">
+                            {selected.length === 1 ? selected[0].name : `${selected.length} models selected`}
+                        </span>
                     ) : (
-                        <span className="text-neutral-400">Select a model</span>
+                        <span className="text-neutral-400">Select model(s)</span>
                     )}
                 </div>
                 <ChevronDown
@@ -86,11 +88,9 @@ export default function ModelSelector({ models, selected, onSelect, loading, err
                                     key={model.id}
                                     type="button"
                                     onClick={() => {
-                                        onSelect(model);
-                                        setOpen(false);
-                                        setSearch("");
+                                        onToggle(model);
                                     }}
-                                    className={`w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-neutral-50 transition-colors ${selected?.id === model.id ? "bg-neutral-50" : ""
+                                    className={`w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-neutral-50 transition-colors ${selected.some(s => s.id === model.id) ? "bg-neutral-50 border-l-2 border-neutral-900" : ""
                                         }`}
                                 >
                                     <div className="min-w-0">
